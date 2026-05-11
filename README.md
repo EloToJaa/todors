@@ -1,0 +1,2 @@
+# rustcli
+Example rust CLI
