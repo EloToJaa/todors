@@ -356,6 +356,9 @@ mod tests {
             time_format: "%H:%M".to_string(),
             dt_separator: " ".to_string(),
             default_command: "list".to_string(),
+            color: "auto".to_string(),
+            humanize: false,
+            startable: false,
         };
 
         let mut store = AppStore::open(&config).expect("open store");
@@ -394,6 +397,9 @@ mod tests {
             time_format: "%H:%M".to_string(),
             dt_separator: " ".to_string(),
             default_command: "list".to_string(),
+            color: "auto".to_string(),
+            humanize: false,
+            startable: false,
         };
 
         let mut store = AppStore::open(&config).expect("open store");

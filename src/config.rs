@@ -14,6 +14,9 @@ pub struct Config {
     pub time_format: String,
     pub dt_separator: String,
     pub default_command: String,
+    pub color: String,
+    pub humanize: bool,
+    pub startable: bool,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -26,6 +29,9 @@ struct FileConfig {
     time_format: Option<String>,
     dt_separator: Option<String>,
     default_command: Option<String>,
+    color: Option<String>,
+    humanize: Option<bool>,
+    startable: Option<bool>,
 }
 
 impl Config {
@@ -33,6 +39,7 @@ impl Config {
         let config_path = explicit_path
             .map(Path::to_path_buf)
             .or_else(|| std::env::var_os("TODORS_CONFIG").map(PathBuf::from))
+            .or_else(|| std::env::var_os("TODOMAN_CONFIG").map(PathBuf::from))
             .unwrap_or_else(default_config_path);
 
         let file_config = if config_path.exists() {
@@ -73,6 +80,9 @@ impl Config {
             default_command: file_config
                 .default_command
                 .unwrap_or_else(|| "list".to_string()),
+            color: file_config.color.unwrap_or_else(|| "auto".to_string()),
+            humanize: file_config.humanize.unwrap_or(false),
+            startable: file_config.startable.unwrap_or(false),
         })
     }
 }

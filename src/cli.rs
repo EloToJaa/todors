@@ -20,6 +20,10 @@ pub struct Cli {
     pub config: Option<PathBuf>,
     #[arg(long)]
     porcelain: bool,
+    #[arg(long = "colour", alias = "color")]
+    color: Option<String>,
+    #[arg(long)]
+    humanize: bool,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -142,6 +146,8 @@ impl Cli {
 }
 
 pub fn run(cli: Cli, config: &Config, app: &mut AppStore) -> Result<()> {
+    let _cli_color = cli.color.as_deref().unwrap_or(config.color.as_str());
+    let _humanize = cli.humanize || config.humanize;
     let command = match cli.command {
         Some(command) => command,
         None => command_from_default(config),
@@ -202,6 +208,7 @@ fn command_from_default(config: &Config) -> Command {
 
 fn list(args: ListArgs, config: &Config, app: &mut AppStore, porcelain: bool) -> Result<()> {
     let mut todos = app.all_todos()?;
+    let _color_mode = config.color.as_str();
     if !args.lists.is_empty() {
         todos.retain(|(_, todo)| {
             args.lists
@@ -251,7 +258,7 @@ fn list(args: ListArgs, config: &Config, app: &mut AppStore, porcelain: bool) ->
         let limit = Local::now() + Duration::hours(hours);
         todos.retain(|(_, todo)| todo.due.map(|due| due <= limit).unwrap_or(false));
     }
-    if args.startable {
+    if args.startable || config.startable {
         let now = Local::now();
         todos.retain(|(_, todo)| todo.start.map(|start| start <= now).unwrap_or(true));
     }
