@@ -13,6 +13,7 @@ pub struct Config {
     pub date_format: String,
     pub time_format: String,
     pub dt_separator: String,
+    pub default_command: String,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -24,6 +25,7 @@ struct FileConfig {
     date_format: Option<String>,
     time_format: Option<String>,
     dt_separator: Option<String>,
+    default_command: Option<String>,
 }
 
 impl Config {
@@ -44,7 +46,7 @@ impl Config {
 
         let path_glob = file_config
             .path
-            .unwrap_or_else(|| "~/calendars/*".to_string());
+            .unwrap_or_else(|| "~/.local/share/calendars/*".to_string());
         let cache_path = expand_home(
             file_config
                 .cache_path
@@ -68,6 +70,9 @@ impl Config {
                 .time_format
                 .unwrap_or_else(|| "%H:%M".to_string()),
             dt_separator: file_config.dt_separator.unwrap_or_else(|| " ".to_string()),
+            default_command: file_config
+                .default_command
+                .unwrap_or_else(|| "list".to_string()),
         })
     }
 }

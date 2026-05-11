@@ -13,6 +13,14 @@ pub fn print_detailed(todo: &Todo, date_format: &str, time_format: &str, dt_sepa
             due.format(time_format)
         );
     }
+    if let Some(start) = todo.start {
+        println!(
+            "start: {}{}{}",
+            start.format(date_format),
+            dt_separator,
+            start.format(time_format)
+        );
+    }
     if let Some(priority) = todo.priority {
         println!("priority: {}", priority);
     }
@@ -21,6 +29,9 @@ pub fn print_detailed(todo: &Todo, date_format: &str, time_format: &str, dt_sepa
     }
     if let Some(location) = &todo.location {
         println!("location: {}", location);
+    }
+    if !todo.categories.is_empty() {
+        println!("categories: {}", todo.categories.join(", "));
     }
     println!("path: {}", todo.path.display());
 }

@@ -195,7 +195,8 @@ fn parse_ics_file(path: &Path, list_name: &str) -> Result<Todo> {
         }
         if let Some((key, value)) = split_ical_line(&line) {
             match key {
-                "UID" | "SUMMARY" | "DESCRIPTION" | "LOCATION" | "DUE" | "STATUS"
+                "UID" | "SUMMARY" | "DESCRIPTION" | "LOCATION" | "DUE" | "DTSTART" | "STATUS"
+                | "CATEGORIES"
                 | "PRIORITY" | "PERCENT-COMPLETE" => {
                     fields.insert(key.to_string(), value.to_string());
                 }
@@ -212,6 +213,7 @@ fn parse_ics_file(path: &Path, list_name: &str) -> Result<Todo> {
     let description = fields.get("DESCRIPTION").cloned();
     let location = fields.get("LOCATION").cloned();
     let due = fields.get("DUE").and_then(|v| parse_datetime(v));
+    let start = fields.get("DTSTART").and_then(|v| parse_datetime(v));
     let status = fields
         .get("STATUS")
         .map(|v| Status::parse(v))
@@ -221,6 +223,10 @@ fn parse_ics_file(path: &Path, list_name: &str) -> Result<Todo> {
         .get("PERCENT-COMPLETE")
         .and_then(|v| v.parse::<u8>().ok())
         .unwrap_or(if status == Status::Completed { 100 } else { 0 });
+    let categories = fields
+        .get("CATEGORIES")
+        .map(|value| value.split(',').map(|item| item.trim().to_string()).filter(|item| !item.is_empty()).collect())
+        .unwrap_or_default();
 
     Ok(Todo {
         uid,
@@ -228,8 +234,10 @@ fn parse_ics_file(path: &Path, list_name: &str) -> Result<Todo> {
         description,
         location,
         due,
+        start,
         status,
         priority,
+        categories,
         percent_complete,
         list_name: list_name.to_string(),
         path: path.to_path_buf(),
@@ -259,8 +267,14 @@ fn write_ics_file(path: &Path, todo: &Todo) -> Result<()> {
     if let Some(due) = todo.due {
         lines.push(format!("DUE:{}", due.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")));
     }
+    if let Some(start) = todo.start {
+        lines.push(format!("DTSTART:{}", start.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")));
+    }
     if let Some(priority) = todo.priority {
         lines.push(format!("PRIORITY:{}", priority));
+    }
+    if !todo.categories.is_empty() {
+        lines.push(format!("CATEGORIES:{}", escape(&todo.categories.join(","))));
     }
 
     lines.extend(todo.raw_other.iter().cloned());
@@ -341,6 +355,7 @@ mod tests {
             date_format: "%Y-%m-%d".to_string(),
             time_format: "%H:%M".to_string(),
             dt_separator: " ".to_string(),
+            default_command: "list".to_string(),
         };
 
         let mut store = AppStore::open(&config).expect("open store");
@@ -378,6 +393,7 @@ mod tests {
             date_format: "%Y-%m-%d".to_string(),
             time_format: "%H:%M".to_string(),
             dt_separator: " ".to_string(),
+            default_command: "list".to_string(),
         };
 
         let mut store = AppStore::open(&config).expect("open store");

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::path::PathBuf;
 
 use anyhow::{bail, Result};
@@ -12,7 +13,6 @@ use crate::store::AppStore;
 
 #[derive(Debug, Parser)]
 #[command(name = "todo")]
-#[command(about = "Rust rewrite of todoman")]
 pub struct Cli {
     #[arg(short, long)]
     pub config: Option<PathBuf>,
@@ -31,6 +31,9 @@ enum Command {
     },
     Edit(EditArgs),
     Done {
+        ids: Vec<i64>,
+    },
+    Undo {
         ids: Vec<i64>,
     },
     Cancel {
@@ -58,18 +61,29 @@ enum Command {
 
 #[derive(Debug, Args)]
 struct ListArgs {
-    #[arg(short, long)]
-    list: Option<String>,
-    #[arg(short, long)]
-    all: bool,
+    lists: Vec<String>,
+    #[arg(long)]
+    location: Option<String>,
     #[arg(long)]
     grep: Option<String>,
     #[arg(long)]
-    priority: Option<u8>,
-    #[arg(long)]
-    status: Option<String>,
-    #[arg(long)]
     sort: Option<String>,
+    #[arg(long, default_value_t = true)]
+    reverse: bool,
+    #[arg(long)]
+    due: Option<i64>,
+    #[arg(short = 'c', long)]
+    category: Vec<String>,
+    #[arg(long)]
+    priority: Option<u8>,
+    #[arg(long, value_names = ["WHEN", "DATE"], num_args = 2)]
+    start: Option<Vec<String>>,
+    #[arg(long)]
+    startable: bool,
+    #[arg(short = 's', long, default_value = "NEEDS-ACTION,IN-PROCESS")]
+    status: String,
+    #[arg(short, long)]
+    all: bool,
 }
 
 #[derive(Debug, Args)]
@@ -85,6 +99,8 @@ struct NewArgs {
     location: Option<String>,
     #[arg(long)]
     priority: Option<u8>,
+    #[arg(short = 'c', long)]
+    category: Vec<String>,
 }
 
 #[derive(Debug, Args)]
@@ -104,6 +120,12 @@ struct EditArgs {
     due_hours: Option<i64>,
     #[arg(long)]
     clear_due: bool,
+    #[arg(long)]
+    start_hours: Option<i64>,
+    #[arg(long)]
+    clear_start: bool,
+    #[arg(short = 'c', long)]
+    category: Vec<String>,
 }
 
 impl Cli {
@@ -114,50 +136,100 @@ impl Cli {
 
 pub fn run(cli: Cli, config: &Config, app: &mut AppStore) -> Result<()> {
     let command = match cli.command {
-        Some(cmd) => cmd,
-        None => Command::List(ListArgs {
-            list: None,
-            all: false,
-            grep: None,
-            priority: None,
-            status: None,
-            sort: None,
-        }),
+        Some(command) => command,
+        None => command_from_default(config),
     };
 
     match command {
         Command::List(args) => list(args, config, app, cli.porcelain),
         Command::New(args) => create(args, config, app),
-        Command::Show { id } => show(id, config, app),
-        Command::Edit(args) => edit(args, config, app),
-        Command::Done { ids } => update_status(ids, Status::Completed, app),
-        Command::Cancel { ids } => update_status(ids, Status::Cancelled, app),
-        Command::Delete { ids } => delete(ids, app),
-        Command::Flush => flush(app),
+        Command::Show { id } => show(id, config, app, cli.porcelain),
+        Command::Edit(args) => edit(args, config, app, cli.porcelain),
+        Command::Done { ids } => update_status(ids, Status::Completed, app, cli.porcelain),
+        Command::Undo { ids } => update_status(ids, Status::NeedsAction, app, cli.porcelain),
+        Command::Cancel { ids } => update_status(ids, Status::Cancelled, app, cli.porcelain),
+        Command::Delete { ids } => delete(ids, app, cli.porcelain),
+        Command::Flush => flush(app, cli.porcelain),
         Command::Lists => list_lists(app, cli.porcelain),
         Command::Path { id } => path(id, app),
-        Command::Move { id, list } => move_todo(id, &list, app),
-        Command::Copy { id, list } => copy_todo(id, &list, app),
+        Command::Move { id, list } => move_todo(id, &list, app, cli.porcelain),
+        Command::Copy { id, list } => copy_todo(id, &list, app, cli.porcelain),
     }
+}
+
+fn command_from_default(config: &Config) -> Command {
+    if config.default_command.trim() == "list" {
+        return Command::List(ListArgs {
+            lists: Vec::new(),
+            location: None,
+            grep: None,
+            sort: None,
+            reverse: true,
+            due: None,
+            category: Vec::new(),
+            priority: None,
+            start: None,
+            startable: false,
+            status: "NEEDS-ACTION,IN-PROCESS".to_string(),
+            all: false,
+        });
+    }
+    Command::List(ListArgs {
+        lists: Vec::new(),
+        location: None,
+        grep: None,
+        sort: None,
+        reverse: true,
+        due: None,
+        category: Vec::new(),
+        priority: None,
+        start: None,
+        startable: false,
+        status: "NEEDS-ACTION,IN-PROCESS".to_string(),
+        all: false,
+    })
 }
 
 fn list(args: ListArgs, config: &Config, app: &mut AppStore, porcelain: bool) -> Result<()> {
     let mut todos = app.all_todos()?;
-    if let Some(ref list_name) = args.list {
-        todos.retain(|(_, todo)| todo.list_name.eq_ignore_ascii_case(list_name));
+    if !args.lists.is_empty() {
+        todos.retain(|(_, todo)| {
+            args.lists
+                .iter()
+                .any(|name| todo.list_name.eq_ignore_ascii_case(name))
+        });
     }
     if !args.all {
-        todos.retain(|(_, todo)| !matches!(todo.status, Status::Completed | Status::Cancelled));
+        let statuses = parse_status_filter(&args.status)?;
+        todos.retain(|(_, todo)| statuses.contains(&todo.status));
     }
-    if let Some(ref grep) = args.grep {
+    if let Some(grep) = args.grep {
         let needle = grep.to_ascii_lowercase();
         todos.retain(|(_, todo)| {
             todo.summary.to_ascii_lowercase().contains(&needle)
                 || todo
                     .description
                     .as_ref()
-                    .map(|d| d.to_ascii_lowercase().contains(&needle))
+                    .map(|value| value.to_ascii_lowercase().contains(&needle))
                     .unwrap_or(false)
+        });
+    }
+    if let Some(location) = args.location {
+        let needle = location.to_ascii_lowercase();
+        todos.retain(|(_, todo)| {
+            todo.location
+                .as_ref()
+                .map(|value| value.to_ascii_lowercase().contains(&needle))
+                .unwrap_or(false)
+        });
+    }
+    if !args.category.is_empty() {
+        todos.retain(|(_, todo)| {
+            args.category.iter().all(|cat| {
+                todo.categories
+                    .iter()
+                    .any(|item| item.eq_ignore_ascii_case(cat))
+            })
         });
     }
     if let Some(priority) = args.priority {
@@ -165,23 +237,44 @@ fn list(args: ListArgs, config: &Config, app: &mut AppStore, porcelain: bool) ->
             todo.priority.unwrap_or(0) > 0 && todo.priority.unwrap_or(0) <= priority
         });
     }
-    if let Some(statuses) = args.status {
-        let parsed = parse_status_filter(&statuses)?;
-        todos.retain(|(_, todo)| parsed.contains(&todo.status));
+    if let Some(hours) = args.due {
+        let limit = Local::now() + Duration::hours(hours);
+        todos.retain(|(_, todo)| todo.due.map(|due| due <= limit).unwrap_or(false));
+    }
+    if args.startable {
+        let now = Local::now();
+        todos.retain(|(_, todo)| todo.start.map(|start| start <= now).unwrap_or(true));
+    }
+    if let Some(start_filter) = args.start {
+        if start_filter.len() == 2 {
+            let mode = start_filter[0].to_ascii_lowercase();
+            let dt = parse_user_datetime(&start_filter[1], config)?;
+            todos.retain(|(_, todo)| {
+                if let Some(start) = todo.start {
+                    if mode == "before" {
+                        return start <= dt;
+                    }
+                    if mode == "after" {
+                        return start >= dt;
+                    }
+                }
+                false
+            });
+        }
     }
 
-    sort_todos(&mut todos, args.sort.as_deref());
+    sort_todos(&mut todos, args.sort.as_deref(), args.reverse);
 
     if porcelain {
-        let out: Vec<PorcelainTodo> = todos
+        let payload: Vec<PorcelainTodo> = todos
             .iter()
             .map(|(id, todo)| PorcelainTodo::from_parts(*id, todo))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&out)?);
+        println!("{}", serde_json::to_string_pretty(&payload)?);
         return Ok(());
     }
 
-    let show_list = args.list.is_none() && app.lists().len() > 1;
+    let show_list = args.lists.is_empty() && app.lists().len() > 1;
     for (id, todo) in todos {
         print_compact_row(id, &todo, show_list, &config.date_format);
     }
@@ -192,8 +285,8 @@ fn create(args: NewArgs, config: &Config, app: &mut AppStore) -> Result<()> {
     if args.summary.is_empty() {
         bail!("summary is required");
     }
-    let list_name = if let Some(value) = args.list {
-        value
+    let list_name = if let Some(list_name) = args.list {
+        list_name
     } else if let Some(default) = &config.default_list {
         default.clone()
     } else {
@@ -203,7 +296,6 @@ fn create(args: NewArgs, config: &Config, app: &mut AppStore) -> Result<()> {
         .list_by_name(&list_name)
         .ok_or_else(|| anyhow::anyhow!("unknown list: {}", list_name))?
         .clone();
-
     let due_hours = args.due_hours.unwrap_or(config.default_due_hours);
     let due = if due_hours > 0 {
         Some(Local::now() + Duration::hours(due_hours))
@@ -217,8 +309,10 @@ fn create(args: NewArgs, config: &Config, app: &mut AppStore) -> Result<()> {
         description: args.description,
         location: args.location,
         due,
+        start: None,
         status: Status::NeedsAction,
         priority: args.priority,
+        categories: args.category,
         percent_complete: 0,
         list_name: list.name.clone(),
         path: PathBuf::new(),
@@ -235,8 +329,15 @@ fn create(args: NewArgs, config: &Config, app: &mut AppStore) -> Result<()> {
     Ok(())
 }
 
-fn show(id: i64, config: &Config, app: &mut AppStore) -> Result<()> {
+fn show(id: i64, config: &Config, app: &mut AppStore, porcelain: bool) -> Result<()> {
     let todo = app.todo_by_id(id)?;
+    if porcelain {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&PorcelainTodo::from_parts(id, &todo))?
+        );
+        return Ok(());
+    }
     output::print_detailed(
         &todo,
         &config.date_format,
@@ -246,7 +347,7 @@ fn show(id: i64, config: &Config, app: &mut AppStore) -> Result<()> {
     Ok(())
 }
 
-fn edit(args: EditArgs, config: &Config, app: &mut AppStore) -> Result<()> {
+fn edit(args: EditArgs, config: &Config, app: &mut AppStore, porcelain: bool) -> Result<()> {
     let mut todo = app.todo_by_id(args.id)?;
     if let Some(summary) = args.summary {
         todo.summary = summary;
@@ -260,13 +361,14 @@ fn edit(args: EditArgs, config: &Config, app: &mut AppStore) -> Result<()> {
     if let Some(priority) = args.priority {
         todo.priority = Some(priority);
     }
+    if !args.category.is_empty() {
+        todo.categories = args.category;
+    }
     if let Some(status) = args.status {
         let parsed = Status::parse_filter(&status)
             .ok_or_else(|| anyhow::anyhow!("invalid status: {}", status))?;
         todo.status = parsed;
-        if parsed == Status::Completed {
-            todo.percent_complete = 100;
-        }
+        todo.percent_complete = if parsed == Status::Completed { 100 } else { 0 };
     }
     if let Some(hours) = args.due_hours {
         if hours <= 0 {
@@ -278,8 +380,25 @@ fn edit(args: EditArgs, config: &Config, app: &mut AppStore) -> Result<()> {
     if args.clear_due {
         todo.due = None;
     }
+    if let Some(hours) = args.start_hours {
+        if hours <= 0 {
+            todo.start = None;
+        } else {
+            todo.start = Some(Local::now() + Duration::hours(hours));
+        }
+    }
+    if args.clear_start {
+        todo.start = None;
+    }
 
     app.save_existing(&todo)?;
+    if porcelain {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&PorcelainTodo::from_parts(args.id, &todo))?
+        );
+        return Ok(());
+    }
     output::print_detailed(
         &todo,
         &config.date_format,
@@ -289,33 +408,50 @@ fn edit(args: EditArgs, config: &Config, app: &mut AppStore) -> Result<()> {
     Ok(())
 }
 
-fn update_status(ids: Vec<i64>, status: Status, app: &mut AppStore) -> Result<()> {
+fn update_status(ids: Vec<i64>, status: Status, app: &mut AppStore, porcelain: bool) -> Result<()> {
     if ids.is_empty() {
         bail!("at least one id is required");
     }
+    let mut payload = Vec::new();
     for id in ids {
         let mut todo = app.todo_by_id(id)?;
         todo.status = status;
         todo.percent_complete = if status == Status::Completed { 100 } else { 0 };
         app.save_existing(&todo)?;
-        println!("updated {}", id);
+        if porcelain {
+            payload.push(PorcelainTodo::from_parts(id, &todo));
+        } else {
+            println!("updated {}", id);
+        }
+    }
+    if porcelain {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
     }
     Ok(())
 }
 
-fn delete(ids: Vec<i64>, app: &mut AppStore) -> Result<()> {
+fn delete(ids: Vec<i64>, app: &mut AppStore, porcelain: bool) -> Result<()> {
     if ids.is_empty() {
         bail!("at least one id is required");
     }
-    for id in ids {
-        app.delete_by_id(id)?;
-        println!("deleted {}", id);
+    for id in &ids {
+        app.delete_by_id(*id)?;
+        if !porcelain {
+            println!("deleted {}", id);
+        }
+    }
+    if porcelain {
+        println!("{}", serde_json::json!({"deleted": ids}));
     }
     Ok(())
 }
 
-fn flush(app: &mut AppStore) -> Result<()> {
+fn flush(app: &mut AppStore, porcelain: bool) -> Result<()> {
     let deleted = app.flush_done()?;
+    if porcelain {
+        println!("{}", serde_json::json!({"flushed": deleted}));
+        return Ok(());
+    }
     println!("flushed {} completed todos", deleted);
     Ok(())
 }
@@ -338,30 +474,44 @@ fn path(id: i64, app: &mut AppStore) -> Result<()> {
     Ok(())
 }
 
-fn move_todo(id: i64, list_name: &str, app: &mut AppStore) -> Result<()> {
+fn move_todo(id: i64, list_name: &str, app: &mut AppStore, porcelain: bool) -> Result<()> {
     let list = app
         .list_by_name(list_name)
         .ok_or_else(|| anyhow::anyhow!("unknown list: {}", list_name))?
         .clone();
     app.move_to_list(id, &list)?;
+    if porcelain {
+        println!("{}", serde_json::json!({"moved": id, "list": list.name}));
+        return Ok(());
+    }
     println!("moved {} to {}", id, list.name);
     Ok(())
 }
 
-fn copy_todo(id: i64, list_name: &str, app: &mut AppStore) -> Result<()> {
+fn copy_todo(id: i64, list_name: &str, app: &mut AppStore, porcelain: bool) -> Result<()> {
     let list = app
         .list_by_name(list_name)
         .ok_or_else(|| anyhow::anyhow!("unknown list: {}", list_name))?
         .clone();
     let new_id = app.copy_to_list(id, &list)?;
+    if porcelain {
+        println!(
+            "{}",
+            serde_json::json!({"copied_from": id, "copied_to": new_id, "list": list.name})
+        );
+        return Ok(());
+    }
     println!("copied {} to {} as {}", id, list.name, new_id);
     Ok(())
 }
 
 fn parse_status_filter(raw: &str) -> Result<Vec<Status>> {
     let mut statuses = Vec::new();
-    for token in raw.split(',') {
-        let token = token.trim();
+    for token in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+    {
         if token.eq_ignore_ascii_case("ANY") {
             return Ok(vec![
                 Status::NeedsAction,
@@ -374,17 +524,35 @@ fn parse_status_filter(raw: &str) -> Result<Vec<Status>> {
             .ok_or_else(|| anyhow::anyhow!("invalid status token: {}", token))?;
         statuses.push(status);
     }
-    if statuses.is_empty() {
-        return Ok(vec![Status::NeedsAction, Status::InProcess]);
-    }
     Ok(statuses)
 }
 
-fn sort_todos(todos: &mut [(i64, Todo)], sort: Option<&str>) {
-    let Some(sort) = sort else {
-        return;
-    };
+fn parse_user_datetime(raw: &str, config: &Config) -> Result<chrono::DateTime<Local>> {
+    let full = format!("{}{}{}", raw, config.dt_separator, "00:00");
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(
+        &full,
+        &format!(
+            "{}{}{}",
+            config.date_format, config.dt_separator, config.time_format
+        ),
+    ) {
+        if let Some(value) = naive.and_local_timezone(Local).single() {
+            return Ok(value);
+        }
+    }
+    let naive = chrono::NaiveDate::parse_from_str(raw, &config.date_format)?;
+    let with_time = naive
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| anyhow::anyhow!("invalid date"))?;
+    with_time
+        .and_local_timezone(Local)
+        .single()
+        .ok_or_else(|| anyhow::anyhow!("invalid local datetime"))
+}
+
+fn sort_todos(todos: &mut [(i64, Todo)], sort: Option<&str>, reverse: bool) {
     let keys: Vec<&str> = sort
+        .unwrap_or("due,priority")
         .split(',')
         .map(str::trim)
         .filter(|part| !part.is_empty())
@@ -393,7 +561,7 @@ fn sort_todos(todos: &mut [(i64, Todo)], sort: Option<&str>) {
         for key in &keys {
             let ascending = key.starts_with('-');
             let field = key.trim_start_matches('-');
-            let ord = match field {
+            let mut ord = match field {
                 "id" => left.0.cmp(&right.0),
                 "summary" => left.1.summary.cmp(&right.1.summary),
                 "priority" => left
@@ -402,11 +570,16 @@ fn sort_todos(todos: &mut [(i64, Todo)], sort: Option<&str>) {
                     .unwrap_or(255)
                     .cmp(&right.1.priority.unwrap_or(255)),
                 "due" => left.1.due.cmp(&right.1.due),
+                "start" => left.1.start.cmp(&right.1.start),
                 "status" => left.1.status.as_str().cmp(right.1.status.as_str()),
-                _ => std::cmp::Ordering::Equal,
+                "location" => left.1.location.cmp(&right.1.location),
+                _ => Ordering::Equal,
             };
-            if ord != std::cmp::Ordering::Equal {
-                return if ascending { ord } else { ord.reverse() };
+            if !ascending {
+                ord = ord.reverse();
+            }
+            if ord != Ordering::Equal {
+                return if reverse { ord.reverse() } else { ord };
             }
         }
         left.0.cmp(&right.0)
@@ -416,7 +589,7 @@ fn sort_todos(todos: &mut [(i64, Todo)], sort: Option<&str>) {
 fn print_compact_row(id: i64, todo: &Todo, show_list: bool, date_format: &str) {
     let due = todo
         .due
-        .map(|d| d.format(date_format).to_string())
+        .map(|due| due.format(date_format).to_string())
         .unwrap_or_default();
     if show_list {
         println!(
@@ -450,8 +623,10 @@ struct PorcelainTodo {
     description: Option<String>,
     location: Option<String>,
     due: Option<String>,
+    start: Option<String>,
     status: String,
     priority: Option<u8>,
+    categories: Vec<String>,
     percent_complete: u8,
     list: String,
     path: String,
@@ -465,9 +640,11 @@ impl PorcelainTodo {
             summary: todo.summary.clone(),
             description: todo.description.clone(),
             location: todo.location.clone(),
-            due: todo.due.map(|d| d.to_rfc3339()),
+            due: todo.due.map(|value| value.to_rfc3339()),
+            start: todo.start.map(|value| value.to_rfc3339()),
             status: todo.status.as_str().to_string(),
             priority: todo.priority,
+            categories: todo.categories.clone(),
             percent_complete: todo.percent_complete,
             list: todo.list_name.clone(),
             path: todo.path.display().to_string(),
