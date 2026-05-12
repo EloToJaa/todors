@@ -279,6 +279,9 @@ fn list(
         && start_filter.len() == 2
     {
         let mode = start_filter[0].to_ascii_lowercase();
+        if mode != "before" && mode != "after" {
+            bail!("invalid --start mode: {} (expected before or after)", start_filter[0]);
+        }
         let dt = parse_user_datetime(&start_filter[1], config)?;
         todos.retain(|(_, todo)| {
             if let Some(start) = todo.start {
