@@ -1,6 +1,6 @@
 use std::io::IsTerminal;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use chrono::{Duration, Local};
 
 use crate::model::{Status, Todo};
@@ -180,7 +180,7 @@ pub fn parse_rgb_hex(color: &str) -> Option<(u8, u8, u8)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_rgb_hex, ColorMode};
+    use super::{ColorMode, parse_rgb_hex};
 
     #[test]
     fn parses_rgb_hex_color() {

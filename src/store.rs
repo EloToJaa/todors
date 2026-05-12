@@ -42,7 +42,9 @@ impl AppStore {
     }
 
     pub fn list_by_name(&self, name: &str) -> Option<&TodoList> {
-        self.lists.iter().find(|list| list.name.eq_ignore_ascii_case(name))
+        self.lists
+            .iter()
+            .find(|list| list.name.eq_ignore_ascii_case(name))
     }
 
     pub fn all_todos(&mut self) -> Result<Vec<(i64, Todo)>> {
@@ -263,10 +265,16 @@ fn write_ics_file(path: &Path, todo: &Todo) -> Result<()> {
         lines.push(format!("LOCATION:{}", escape(location)));
     }
     if let Some(due) = todo.due {
-        lines.push(format!("DUE:{}", due.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")));
+        lines.push(format!(
+            "DUE:{}",
+            due.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")
+        ));
     }
     if let Some(start) = todo.start {
-        lines.push(format!("DTSTART:{}", start.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")));
+        lines.push(format!(
+            "DTSTART:{}",
+            start.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")
+        ));
     }
     if let Some(priority) = todo.priority {
         lines.push(format!("PRIORITY:{}", priority));
