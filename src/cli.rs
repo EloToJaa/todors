@@ -582,12 +582,10 @@ fn copy_todo(id: i64, list_name: &str, app: &mut AppStore, porcelain: bool) -> R
 }
 
 fn edit_raw_file(path: &Path) -> Result<()> {
-    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
     let status = ProcessCommand::new("sh")
         .arg("-c")
-        .arg("$1 \"$2\"")
+        .arg(": \"${EDITOR:=vi}\"; exec $EDITOR \"$1\"")
         .arg("sh")
-        .arg(&editor)
         .arg(path)
         .status()?;
     if status.success() {
