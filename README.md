@@ -116,3 +116,38 @@ todors --porcelain list
 
 This project is early-stage and evolving. Command behavior aims to stay close
 to `todoman`, and tests include parity checks when `todoman` is installed.
+
+## Releases
+
+Releases are automated with GoReleaser when a tag matching `v*` is pushed.
+
+### Create a release
+
+```bash
+# 1) Ensure local checks pass
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
+
+# 2) Bump version in Cargo.toml, commit, and tag
+git tag -a v0.1.0 -m "Release v0.1.0"
+
+# 3) Push commits and tag
+git push origin main
+git push origin v0.1.0
+```
+
+The release workflow builds and uploads archives for:
+
+- Linux `x86_64` and `aarch64`
+- macOS `x86_64` and `aarch64`
+- Windows `x86_64`
+
+Each release includes per-platform archives and a `checksums.txt` file.
+
+### Dry-run locally
+
+```bash
+goreleaser check
+goreleaser release --snapshot --clean
+```
