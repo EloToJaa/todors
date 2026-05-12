@@ -3,7 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use chrono::{Duration, Local};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
@@ -797,7 +797,7 @@ impl PorcelainTodo {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_from_default, Command};
+    use super::{Command, command_from_default};
     use crate::config::Config;
     use std::path::PathBuf;
 

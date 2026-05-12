@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use config::{Config as ConfigLoader, Environment, File};
 use serde::Deserialize;
 

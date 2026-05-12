@@ -42,7 +42,9 @@ impl AppStore {
     }
 
     pub fn list_by_name(&self, name: &str) -> Option<&TodoList> {
-        self.lists.iter().find(|list| list.name.eq_ignore_ascii_case(name))
+        self.lists
+            .iter()
+            .find(|list| list.name.eq_ignore_ascii_case(name))
     }
 
     pub fn all_todos(&mut self) -> Result<Vec<(i64, Todo)>> {
@@ -206,8 +208,7 @@ fn parse_ics_file(path: &Path, list_name: &str) -> Result<Option<Todo>> {
         if let Some((key, value)) = split_ical_line(&line) {
             match key {
                 "UID" | "SUMMARY" | "DESCRIPTION" | "LOCATION" | "DUE" | "DTSTART" | "STATUS"
-                | "CATEGORIES"
-                | "PRIORITY" | "PERCENT-COMPLETE" => {
+                | "CATEGORIES" | "PRIORITY" | "PERCENT-COMPLETE" => {
                     fields.insert(key.to_string(), value.to_string());
                 }
                 _ => other.push(line),
@@ -227,8 +228,12 @@ fn parse_ics_file(path: &Path, list_name: &str) -> Result<Option<Todo>> {
         .get("SUMMARY")
         .map(|value| unescape_ical_text(value))
         .unwrap_or_default();
-    let description = fields.get("DESCRIPTION").map(|value| unescape_ical_text(value));
-    let location = fields.get("LOCATION").map(|value| unescape_ical_text(value));
+    let description = fields
+        .get("DESCRIPTION")
+        .map(|value| unescape_ical_text(value));
+    let location = fields
+        .get("LOCATION")
+        .map(|value| unescape_ical_text(value));
     let due = fields.get("DUE").and_then(|v| parse_datetime(v));
     let start = fields.get("DTSTART").and_then(|v| parse_datetime(v));
     let status = fields
@@ -282,10 +287,16 @@ fn write_ics_file(path: &Path, todo: &Todo) -> Result<()> {
         lines.push(format!("LOCATION:{}", escape(location)));
     }
     if let Some(due) = todo.due {
-        lines.push(format!("DUE:{}", due.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")));
+        lines.push(format!(
+            "DUE:{}",
+            due.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")
+        ));
     }
     if let Some(start) = todo.start {
-        lines.push(format!("DTSTART:{}", start.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")));
+        lines.push(format!(
+            "DTSTART:{}",
+            start.with_timezone(&Utc).format("%Y%m%dT%H%M%SZ")
+        ));
     }
     if let Some(priority) = todo.priority {
         lines.push(format!("PRIORITY:{}", priority));
@@ -554,6 +565,9 @@ mod tests {
         assert_eq!(todo.summary, "Comma, Semi; Slash\\");
         assert_eq!(todo.description.as_deref(), Some("Line 1\nLine 2"));
         assert_eq!(todo.location.as_deref(), Some("Office, 2nd floor"));
-        assert_eq!(todo.categories, vec!["ops,oncall".to_string(), "infra".to_string()]);
+        assert_eq!(
+            todo.categories,
+            vec!["ops,oncall".to_string(), "infra".to_string()]
+        );
     }
 }
