@@ -29,12 +29,7 @@ fn write_fixture() -> (tempfile::TempDir, std::path::PathBuf) {
 }
 
 fn run_with_config(bin: &str, config: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(bin)
-        .arg("--config")
-        .arg(config)
-        .args(args)
-        .output()
-        .expect("run command")
+    Command::new(bin).arg("--config").arg(config).args(args).output().expect("run command")
 }
 
 fn assert_success(output: &std::process::Output, context: &str) {

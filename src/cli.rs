@@ -305,13 +305,8 @@ fn list(
 
     let show_list = args.lists.is_empty() && app.lists().len() > 1;
     for (id, todo) in todos {
-        let list_color = app
-            .list_by_name(&todo.list_name)
-            .and_then(|list| list.color.as_deref());
-        println!(
-            "{}",
-            theme.compact_row(id, &todo, show_list, &config.date_format, list_color)
-        );
+        let list_color = app.list_by_name(&todo.list_name).and_then(|list| list.color.as_deref());
+        println!("{}", theme.compact_row(id, &todo, show_list, &config.date_format, list_color));
     }
     Ok(())
 }
@@ -381,9 +376,7 @@ fn show(
         println!("{}", serde_json::to_string_pretty(&PorcelainTodo::from_parts(id, &todo))?);
         return Ok(());
     }
-    let list_color = app
-        .list_by_name(&todo.list_name)
-        .and_then(|list| list.color.as_deref());
+    let list_color = app.list_by_name(&todo.list_name).and_then(|list| list.color.as_deref());
     theme.print_detailed(
         &todo,
         &config.date_format,
@@ -412,9 +405,8 @@ fn edit(
             );
             return Ok(());
         }
-        let list_color = app
-            .list_by_name(&updated.list_name)
-            .and_then(|list| list.color.as_deref());
+        let list_color =
+            app.list_by_name(&updated.list_name).and_then(|list| list.color.as_deref());
         theme.print_detailed(
             &updated,
             &config.date_format,
@@ -474,9 +466,7 @@ fn edit(
         println!("{}", serde_json::to_string_pretty(&PorcelainTodo::from_parts(args.id, &todo))?);
         return Ok(());
     }
-    let list_color = app
-        .list_by_name(&todo.list_name)
-        .and_then(|list| list.color.as_deref());
+    let list_color = app.list_by_name(&todo.list_name).and_then(|list| list.color.as_deref());
     theme.print_detailed(
         &todo,
         &config.date_format,
